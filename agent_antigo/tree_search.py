@@ -87,7 +87,7 @@ class SearchTree:
         return(path)
 
     # procurar a solucao
-    def search(self, limit):  
+    def search(self):
         while self.open_nodes != []:
             node = self.open_nodes.pop(0)
             self.cost += node.cost
@@ -95,17 +95,17 @@ class SearchTree:
             #print(self.length) 
             if self.problem.goal_test(node.state):
                 return self.get_path(node), node.cost, node.depth
-            elif self.length >= limit: #
+            elif self.length >= 2000: #
                 return self.get_path(node), node.cost, node.depth #
             lnewnodes = []
             for action in self.problem.domain.actions(node.state):
                 newstate = self.problem.domain.result(node.state, action)
-                if not node.in_parent(newstate) and node.depth < limit: #   #ou node.depth < limit:
+                if not node.in_parent(newstate) and node.depth < 2000: #   #ou node.depth < limit:
                     lnewnodes += [SearchNode(newstate,node, action, node.depth+1, node.cost+self.problem.domain.cost(node.state, action), self.problem.domain.heuristic(newstate, self.problem.goal))]
                     #print("LNEWNODES: ", lnewnodes)
                     #print(" ") 
             self.add_to_open(lnewnodes) 
-        return None  
+        return None
 
     def add_to_open(self, lnewnodes):
         if self.strategy == 'breadth':
