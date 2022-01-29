@@ -7,21 +7,17 @@ import pprint
 import time
 import itertools
 import random
-from tree_search import *
+from latestTree import *
 import math
 import os
-import pprint
-import numpy
-
 CELLROWS=7
 CELLCOLS=14
 
 MAPPINGCOLS = (((CELLCOLS*2)-1)*2)+1
 MAPPINGROWS = (((CELLROWS*2)-1)*2)+1
 
-center, left, right, back  = 0, 1, 2, 3
 
-class Domain(SearchDomain):
+class Domain():
 
     def __init__(self, connections):
         self.connections = connections # visited + free cells: all knwon cells
@@ -31,8 +27,8 @@ class Domain(SearchDomain):
         for (c1, c2) in self.connections:
             if (c1 == cell):
                 actlist = actlist + [(c1, c2)]
-            elif (c2 == cell):
-                actlist = actlist + [(c2, c1)]
+            # elif (c2 == cell):
+            #     actlist = actlist + [(c2, c1)]
         return   actlist
 
     def result(self, cell, action):
@@ -53,18 +49,8 @@ class MyRob(CRobLinkAngs):
         CRobLinkAngs.__init__(self, rob_name, rob_id, angles, host)
 
         self.ticks = 0
+        self.first_tick = True
         self.errorPrev = 0
-        self.i = 0 
-
-        self.curr_x = 0
-        self.curr_y = 0
-        self.prev_x = 0
-        self.prev_y = 0
-        self.prev_lpout = 0
-        self.prev_rpout = 0
-        self.curr_theta = 0
-        self.prev_theta = 0
-        self.curr_gps = [0, 0]
 
         self.map = [[' ' for col in range(0, MAPPINGCOLS)] for row in range(0, MAPPINGROWS)]
         self.curr_mapping = None
@@ -77,16 +63,12 @@ class MyRob(CRobLinkAngs):
         self.newtowalk_neighborhood = []
         self.neighborhood = []
         self.visited_cells = []
-
+        self.beacon_positions = []
+        self.beacons = 0
+        self.beacon_path = []
         self.map_connections = []
 
         self.tree_path = []
-        self.beacon_positions = {}
-        self.beacons = 0
-        self.beacon = 1
-        self.beacon_path = []
-        self.inicial_x = 0
-        self.inicial_y = 0
     # In this map the center of cell (i,j), (i in 0..6, j in 0..13) is mapped to labMap[i*2][j*2].
     # to know if there is a wall on top of cell(i,j) (i in 0..5), check if the value of labMap[i*2+1][j*2] is space or not
     def setMap(self, labMap):
@@ -106,23 +88,26 @@ class MyRob(CRobLinkAngs):
         delta_ang = 0
         cardinal = 0
 
-        self.readSensors()
-        self.inicial_x = self.measures.x
-        self.inicial_y = self.measures.y
-        self.init_position()
+        print("ROWS: {}, COLS: {}".format(len(self.map), len(self.map[0])))
 
-        if os.path.exists("planning.out"):
-            os.remove("planning.out")
+        self.readSensors()
+
+        print("ola")
+        self.init_position()
+        print()
 
         while True:
 
             self.readSensors()
+
+
 
             # if self.ticks % 25 == 0:
             #     for i in self.map[::-1]:
             #         for j in i:
             #             print(j, end = '')
             #         print("\n", end = '')
+
 
             if self.measures.endLed:
                 print(self.rob_name + " exiting")
@@ -136,14 +121,7 @@ class MyRob(CRobLinkAngs):
                 state = 'stop'
 
             if state == 'choose':
-                kp = 0.001
-                ki = 0
-                kd = 0
-                p = self.pidcontrol(0, self.measures.compass, kp, ki, kd)
-                self.driveMotors(0.13+(p/2), 0.13+(p/2)) # def pidcontrol(self, dvalue, mvalue, kp, ki ,kd):def pidcontrol(self, dvalue, mvalue, kp, ki ,kd): def pidcontrol(self, dvalue, mvalue, kp, ki ,kd):
-                print(self.measures.compass)
-                #state, delta_ang, cardinal = self.choose_next(state)  
-
+                state, delta_ang, cardinal = self.choose_next(state)
             if state == "walk":
                 state = self.move_one()
 
@@ -153,26 +131,31 @@ class MyRob(CRobLinkAngs):
             if state == "rot_right":
                 state = self.rot_right(delta_ang, cardinal)
 
+            if state == "all_beacons":
+                self.path_beacons()
+                print("exit")
+                sys.exit()
+
             if state=='end':
+                print("JA FEZ TUDO ")
                 self.driveMotors(0.0,0.0)
                 if os.path.exists("mapping.out"):
                     os.remove("mapping.out")
                 with open("mapping.out", 'w') as mapfile:
                     for row in self.map[::-1]:
-                        #print("escrevendo no ficheiro...")
+                        print("escrevendo no ficheiro...")
                         mapfile.write(''.join([str(a) for a in row]) + '\n')
-                #print("exit")
+                print("exit")
                 sys.exit()
-
             self.ticks = self.ticks + 1
 
     def init_position(self):
         self.curr_mapping = [int(MAPPINGROWS/2), int(MAPPINGCOLS/2)] ## nosso (0, 0)
         self.init_mapping = self.curr_mapping
-
+        print("INIT POSITION:     type     : ", type(self.init_mapping[0])   )
         self.map[self.curr_mapping[0]][self.curr_mapping[1]] = 'I'
 
-        self.curr_cell = [0, 0] ## save coordenadas
+        self.curr_cell = [round(self.measures.x, 1), round(self.measures.y, 1)] ## save coordenadas
 
         self.visited_cells.append(self.curr_cell)  if self.curr_cell not in self.visited_cells else _  # adiciona onde estou nas celulas visitadas
 
@@ -184,10 +167,8 @@ class MyRob(CRobLinkAngs):
 
         self.newtowalk_neighborhood = self.newtowalk_cells
 
-        self.map_connections = [[self.curr_cell, neighbor_cell] for neighbor_cell in self.neighborhood]
-
-        #self.map_connections = [[self.curr_cell, neighbor_cell] for neighbor_cell in self.neighborhood if [self.curr_cell, neighbor_cell] not in self.neighborhood]
-        #self.map_connections = self.map_connections + [[neighbor_cell, self.curr_cell] for neighbor_cell in self.neighborhood if [neighbor_cell, self.curr_cell] not in self.neighborhood]
+        self.map_connections = [[self.curr_cell, neighbor_cell] for neighbor_cell in self.neighborhood if [self.curr_cell, neighbor_cell] not in self.neighborhood]
+        self.map_connections = self.map_connections + [[neighbor_cell, self.curr_cell] for neighbor_cell in self.neighborhood if [neighbor_cell, self.curr_cell] not in self.neighborhood]
 
 
     def check_cardinal(self):
@@ -265,10 +246,8 @@ class MyRob(CRobLinkAngs):
 
 
     def update_position(self, diff, cardinal):
-
-        #print("updating postition...")
         if (cardinal == "N" or cardinal == "S"):
-            self.curr_mapping = [self.curr_mapping[0], self.curr_mapping[1]+diff]  ## no python y é na posicao 0
+             self.curr_mapping = [self.curr_mapping[0], self.curr_mapping[1]+diff]  ## no python y é na posicao 0
         else:
             self.curr_mapping = [self.curr_mapping[0]+diff, self.curr_mapping[1]] ## no python x é na posicao 1
 
@@ -277,9 +256,10 @@ class MyRob(CRobLinkAngs):
         else:
             self.curr_cell = [self.curr_cell[0], self.curr_cell[1]+diff]
 
+
         self.map[self.curr_mapping[0]][self.curr_mapping[1]] = 'X'
 
-        self.visited_cells.append(self.curr_cell)  if self.curr_cell not in self.visited_cells else print(" ")   # adicionar current cell se ela nao estiver ja nas visitadas
+        self.visited_cells.append(self.curr_cell)  if self.curr_cell not in self.visited_cells else print("")   # adicionar current cell se ela nao estiver ja nas visitadas
 
         neighbors =  self.check_env()
 
@@ -296,111 +276,100 @@ class MyRob(CRobLinkAngs):
         self.newtowalk_neighborhood = [fcell for fcell in self.neighborhood if fcell in self.newtowalk_cells] ## neighbors of the current cell yet to explore
 
         if cardinal == "N":
-            if (closest_cell:=[self.curr_cell[0], self.curr_cell[1]-2]) in self.newtowalk_neighborhood:
-                self.newtowalk_cells.remove(closest_cell)
-                self.newtowalk_cells = [closest_cell] + self.newtowalk_cells
-            elif (closest_cell:=[self.curr_cell[0]+2, self.curr_cell[1]]) in self.newtowalk_neighborhood:
-                self.newtowalk_cells.remove(closest_cell)
-                self.newtowalk_cells = [closest_cell] + self.newtowalk_cells
-            elif (closest_cell:=[self.curr_cell[0], self.curr_cell[1]+2]) in self.newtowalk_neighborhood:
-                self.newtowalk_cells.remove(closest_cell)
-                self.newtowalk_cells = [closest_cell] + self.newtowalk_cells
-        elif cardinal == "S":
-            if (closest_cell:=[self.curr_cell[0], self.curr_cell[1]+2]) in self.newtowalk_neighborhood:
-                self.newtowalk_cells.remove(closest_cell)
-                self.newtowalk_cells = [closest_cell] + self.newtowalk_cells
-            elif (closest_cell:=[self.curr_cell[0]-2, self.curr_cell[1]]) in self.newtowalk_neighborhood:
-                self.newtowalk_cells.remove(closest_cell)
-                self.newtowalk_cells = [closest_cell] + self.newtowalk_cells
-            elif (closest_cell:=[self.curr_cell[0], self.curr_cell[1]-2]) in self.newtowalk_neighborhood:
-                self.newtowalk_cells.remove(closest_cell)
-                self.newtowalk_cells = [closest_cell] + self.newtowalk_cells
-        elif cardinal == "E":
-            if (closest_cell:=[self.curr_cell[0]-2, self.curr_cell[1]]) in self.newtowalk_neighborhood:
-                self.newtowalk_cells.remove(closest_cell)
-                self.newtowalk_cells = [closest_cell] + self.newtowalk_cells
-            elif (closest_cell:=[self.curr_cell[0], self.curr_cell[1]-2]) in self.newtowalk_neighborhood:
-                self.newtowalk_cells.remove(closest_cell)
-                self.newtowalk_cells = [closest_cell] + self.newtowalk_cells
-            elif (closest_cell:=[self.curr_cell[0]+2, self.curr_cell[1]]) in self.newtowalk_neighborhood:
-                self.newtowalk_cells.remove(closest_cell)
-                self.newtowalk_cells = [closest_cell] + self.newtowalk_cells
-
-        else:
             if (closest_cell:=[self.curr_cell[0]+2, self.curr_cell[1]]) in self.newtowalk_neighborhood:
                 self.newtowalk_cells.remove(closest_cell)
                 self.newtowalk_cells = [closest_cell] + self.newtowalk_cells
             elif (closest_cell:=[self.curr_cell[0], self.curr_cell[1]+2]) in self.newtowalk_neighborhood:
                 self.newtowalk_cells.remove(closest_cell)
                 self.newtowalk_cells = [closest_cell] + self.newtowalk_cells
+            elif (closest_cell:=[self.curr_cell[0], self.curr_cell[1]-2]) in self.newtowalk_neighborhood:
+                self.newtowalk_cells.remove(closest_cell)
+                self.newtowalk_cells = [closest_cell] + self.newtowalk_cells
+        elif cardinal == "S":
+            if (closest_cell:=[self.curr_cell[0]-2, self.curr_cell[1]]) in self.newtowalk_neighborhood:
+                self.newtowalk_cells.remove(closest_cell)
+                self.newtowalk_cells = [closest_cell] + self.newtowalk_cells
+            elif (closest_cell:=[self.curr_cell[0], self.curr_cell[1]-2]) in self.newtowalk_neighborhood:
+                self.newtowalk_cells.remove(closest_cell)
+                self.newtowalk_cells = [closest_cell] + self.newtowalk_cells
+            elif (closest_cell:=[self.curr_cell[0], self.curr_cell[1]+2]) in self.newtowalk_neighborhood:
+                self.newtowalk_cells.remove(closest_cell)
+                self.newtowalk_cells = [closest_cell] + self.newtowalk_cells
+        elif cardinal == "E":
+            if (closest_cell:=[self.curr_cell[0], self.curr_cell[1]-2]) in self.newtowalk_neighborhood:
+                self.newtowalk_cells.remove(closest_cell)
+                self.newtowalk_cells = [closest_cell] + self.newtowalk_cells
+            elif (closest_cell:=[self.curr_cell[0]+2, self.curr_cell[1]]) in self.newtowalk_neighborhood:
+                self.newtowalk_cells.remove(closest_cell)
+                self.newtowalk_cells = [closest_cell] + self.newtowalk_cells
             elif (closest_cell:=[self.curr_cell[0]-2, self.curr_cell[1]]) in self.newtowalk_neighborhood:
                 self.newtowalk_cells.remove(closest_cell)
                 self.newtowalk_cells = [closest_cell] + self.newtowalk_cells
+        else:
+            if (closest_cell:=[self.curr_cell[0], self.curr_cell[1]+2]) in self.newtowalk_neighborhood:
+                self.newtowalk_cells.remove(closest_cell)
+                self.newtowalk_cells = [closest_cell] + self.newtowalk_cells
+            elif (closest_cell:=[self.curr_cell[0]-2, self.curr_cell[1]]) in self.newtowalk_neighborhood:
+                self.newtowalk_cells.remove(closest_cell)
+                self.newtowalk_cells = [closest_cell] + self.newtowalk_cells
+            elif (closest_cell:=[self.curr_cell[0]+2, self.curr_cell[1]]) in self.newtowalk_neighborhood:
+                self.newtowalk_cells.remove(closest_cell)
+                self.newtowalk_cells = [closest_cell] + self.newtowalk_cells
+
+        self.map_connections = self.map_connections + [[self.curr_cell, neighbor_cell] for neighbor_cell in self.neighborhood if [self.curr_cell, neighbor_cell] not in self.neighborhood]
+        self.map_connections = self.map_connections + [[neighbor_cell, self.curr_cell] for neighbor_cell in self.neighborhood if [neighbor_cell, self.curr_cell] not in self.neighborhood]
 
 
-        self.map_connections = self.map_connections + [[self.curr_cell, neighbor_cell] for neighbor_cell in self.neighborhood
-                                                                                            if [self.curr_cell, neighbor_cell] not in self.map_connections
-                                                                                            and [neighbor_cell, self.curr_cell] not in self.map_connections]
-
-        #print("LEN MAP CONNECTIONS: ", len(self.map_connections) )
-
-        #numpy.savez("connections.npz", connections=numpy.array(self.map_connections))
-        #numpy.savez("connections_persistent.npz", connections=numpy.array( self.map_connections))
-
+    def path_beacons(self):
+        self.tree_path = []
+        for i in range(0, len(self.beacon_positions)-1, 1):
+            print("Origem: ", self.beacon_positions[i])
+            print("Destino: ", self.beacon_positions[i+1])
+            self.tree_path = SearchTree(SearchProblem(Domain(self.map_connections), self.beacon_positions[i], self.beacon_positions[i+1]), 'a*').search()[0]
+            print("Path " + str(i) +": "+ str( self.tree_path))
+            self.beacon_path += self.tree_path
+            self.tree_path = []
+            if os.path.exists("path.out"):
+                os.remove("path.out")
+        with open("path.out", 'w') as mapfile:
+            for elem in self.beacon_path:
+                print("escrevendo no ficheiro...")
+                mapfile.write(''.join(str(elem[0]))+" "+''.join(str(elem[1])) + '\n')
+        print("exit")
+        print("Path Completo: ", self.beacon_path)
 
     def choose_next(self, state):
-        print("CHOOSE")
-        print("Predict: ", round(self.curr_x,2), round(self.curr_y,2))
-        print("Real: ", round((self.measures.x-self.inicial_x),2), round((self.measures.y-self.inicial_y),2))
         center_id = 0 ; left_id = 1 ; right_id = 2 ; back_id = 3
 
         cardinal, _, _, _, _ = self.check_cardinal()
+        if self.measures.ground != -1:
+            if self.curr_cell not in self.beacon_positions:
+                self.beacon_positions.append(self.curr_cell)
+                self.beacons += 1
+        print("Beacon Positions", self.beacon_positions)
+        print("Number of beacons", self.beacons)
+        if self.beacons == int(self.nBeacons):
+            return("all_beacons", 0, cardinal)
 
-        if self.beacons != int(self.nBeacons):
-            if self.measures.ground != -1:
-                if self.measures.ground not in self.beacon_positions:
-                    self.beacon_positions[self.measures.ground]=self.curr_cell
-                    self.beacons += 1
-
-        #print(self.beacon_positions)
-        if self.beacon in self.beacon_positions:
-            #print("ASDASDASDASDASD: ", self.beacon)
-            self.beacon_path = SearchTree(SearchProblem(Domain(self.map_connections), self.beacon_positions[self.beacon-1], self.beacon_positions[self.beacon]), 'a*').search(20000)[0]
-            with open("planning.out", 'a+') as planfile:
-                        #print("escrevendo no ficheiro...")
-                        planfile.write(''.join(str(self.beacon_positions.get(self.beacon-1)[0])) + ' ' + ''.join(str(self.beacon_positions.get(self.beacon-1)[1]))) if self.beacon-1 == 0 else print("Ignoring")
-                        for idx, cell in enumerate(self.beacon_path):
-                            planfile.write('\n' + ''.join(str(cell[0])) + ' ' + ''.join(str(cell[1])) + ' #{}'.format(str(self.beacon)) if idx == len(self.beacon_path)-1
-                                      else '\n' + ''.join(str(cell[0])) + ' ' + ''.join(str(cell[1])))
-
-            self.beacon = self.beacon + 1
-        #print(self.beacon_path)
 
         self.next_cell = self.curr_cell
+
 
         if self.tree_path == []:
 
             if not self.newtowalk_cells:
+                print("MAPPING : ", self.init_mapping)
+                print("TYPE XY: ", type(self.init_mapping[1]))
+                print(self.map)
                 self.map[self.init_mapping[0]][self.init_mapping[1]]  =  "I"
                 return ("end", 0, cardinal)
 
-            #print("MY CELL: ", self.curr_cell)
-            #print("NEW TO WALK CELLS: ", self.newtowalk_cells[0])
-            #print(self.newtowalk_cells)
-            #print(" ")
-            self.tree_path = SearchTree(SearchProblem(Domain(self.map_connections), self.curr_cell, self.newtowalk_cells[0]), 'a*').search(2500)[0]
-            #print("CURRENT: POS: ", self.curr_cell)
-            #print("PATH TO NEXT CELL:, ", self.tree_path)
-            #print("NEW TO WALK CELLS:", self.newtowalk_cells)
-            #print(" \n")
-
-            in_tree = [self.curr_cell] + self.tree_path # +
-            #numpy.savez("tree_search.npz", trees=numpy.array(in_tree))
-
+            self.tree_path = SearchTree(SearchProblem(Domain(self.map_connections), self.curr_cell, self.newtowalk_cells[0]), 'a*').search()[0]
 
         self.next_cell = self.tree_path.pop(0)
 
         if (cardinal == "N" or cardinal == "S"):
+
 
             if self.next_cell[0] > self.curr_cell[0]: #self.correctPosition()
                 return ('walk', 0, cardinal) if cardinal == "N" else  ("rot_right", 180, cardinal)
@@ -434,213 +403,108 @@ class MyRob(CRobLinkAngs):
             else:
                 return (state, 0, cardinal)
 
-    def pidcontrol(self, dvalue, mvalue, kp, ki ,kd):
+    def pcontrol(self, dvalue, mvalue, kp, kd):
         error = dvalue - mvalue
         p = kp * error
-        #self.i = self.i + ki * error 
-        d = kd * (error - self.errorPrev)  
-        self.errorPrev = error   
-        return p +  d #+ i         
+        d = kd * (error - self.errorPrev)
+        self.errorPrev = error
+        return p + d
 
     def move_one(self):
-        #print(self.curr_x, self.curr_y)
         cardinal, _, _, _, _ = self.check_cardinal()
 
+        kp = 0.015
+        kd = 0.05
 
-        near, close, very_close, on_spot = (1.5, 1.7, 1.85, 2)
+        if (cardinal == "N" or cardinal == "S"):
 
-        if self.measures.irSensor[center] >= 1.8: # QUANDO NAO ANDOU 2 CASAS CERTAS MAS ASSUME QUE ESTA NO CENTRO DA CELULA PQ TEM UMA PAREDE...
-            self.perform_move(0.0)
-            print("Corrigi o erro")
-            print(" ")
-            print("Predict: ", round(self.curr_x,2), round(self.curr_y,2))
-            print("Real: ", round((self.measures.x-self.inicial_x),2), round((self.measures.y-self.inicial_y),2))
-            rounded_x = int(abs(self.curr_x)) if ((int(abs(self.curr_x)) % 2) == 0) else int(abs(self.curr_x)) +1 # arredonda a coordenada
-            rounded_y = int(abs(self.curr_y)) if ((int(abs(self.curr_y)) % 2) == 0) else int(abs(self.curr_y)) +1 # arredonda a coordeanada.
-
-            self.curr_x = (0 - rounded_x) if self.curr_x < 0 else rounded_x
-            self.curr_y = (0 - rounded_y) if self.curr_y < 0 else rounded_y
-
-            self.prev_x = self.curr_x
-            self.prev_y = self.curr_y
-            print("##############")
-            print("Corrigido: ", round(self.curr_x, 2), round(self.curr_y, 2))
-            print("###############")
-            self.curr_gps = [self.curr_x, self.curr_y]
-
-            self.update_position(2 if (cardinal == "N" or cardinal == "O") else -2, cardinal)
-
-            return "choose"   
-
-        elif abs(math.hypot(self.curr_gps[0] - self.curr_x, self.curr_gps[1] - self.curr_y)) < near and self.measures.irSensor[center] < 2.4: # se ainda nao estiver na proxima celula e se nao tiver uma parede a frente...
-            self.perform_move(0.13)
-            return "walk"
-
-        elif abs(math.hypot(self.curr_gps[0] - self.curr_x, self.curr_gps[1] - self.curr_y)) < close and self.measures.irSensor[center] < 2.4: # !!!!!!!!!!!!!  ! ver se ja nao posso parar aqui !!!!!!!!!!!!!!!!!!!
-            self.perform_move(0.07)
-            return "walk"
-
-        elif abs(math.hypot(self.curr_gps[0] - self.curr_x, self.curr_gps[1] - self.curr_y)) < very_close and self.measures.irSensor[center] < 2.4:
-            self.perform_move(0.03)
-            return "walk"
-
-        elif abs(math.hypot(self.curr_gps[0] - self.curr_x, self.curr_gps[1] - self.curr_y)) < on_spot and self.measures.irSensor[center] < 2.4:
-            self.perform_move(0.01)
-            return "walk"
-
-        else: # ANDOU 1!!!!!!
-            self.perform_move(0.0)
-            #print("Predict: ", round(self.curr_x,2), round(self.curr_y,2))
-            #print("Real: ", round((self.measures.x-self.inicial_x),2), round((self.measures.y-self.inicial_y),2))
-            self.curr_gps = [self.curr_x, self.curr_y]
-            self.update_position(2 if (cardinal == "N" or cardinal == "O") else -2, cardinal)
-            #print(self.curr_gps)
-            return "choose"
+            if abs((round(self.measures.x,1) - self.next_cell[0]) == 0) or self.measures.irSensor[0] > 2:
+                self.update_position(2 if cardinal == "N" else -2, cardinal)
+                self.driveMotors(0.0, 0.0)
+                return "choose"
+            else:
+                p = self.pcontrol(self.next_cell[1], round(self.measures.y,1), kp, kd) if cardinal == "N" else  self.pcontrol(round(self.measures.y,1), self.next_cell[1], kp, kd)
+                if self.measures.irSensor[1] >= 3:
+                    self.driveMotors(+0.09, 0.085)
+                    return "walk"
+                elif self.measures.irSensor[2] >= 3:
+                    self.driveMotors(+0.085, 0.09)
+                    return "walk"
+                else:
+                    self.driveMotors(0.1 - (p/2), 0.1 + (p/2))
+                    return "walk"
 
 
-    def perform_move(self, vel):
-        if self.measures.irSensor[left] >= 2.7: 
-            self.driveMotors(vel, vel-0.0025)
-            self.calc_pos(vel, vel-0.0025)
-            #print("Predict: ", round(self.curr_x,2), round(self.curr_y,2))
-            #print("Real: ", round((self.measures.x-self.inicial_x),2), round((self.measures.y-self.inicial_y),2))
-
-        elif self.measures.irSensor[right] >= 2.7:
-            self.driveMotors(vel-0.0025, vel)
-            self.calc_pos(vel-0.0025, vel)
-            #print("Predict: ", round(self.curr_x,2), round(self.curr_y,2))
-            #print("Real: ", round((self.measures.x-self.inicial_x),2), round((self.measures.y-self.inicial_y),2))
+        elif (cardinal == "O" or cardinal == "E") : 
+            if abs(round(self.measures.y,1) - self.next_cell[1]) == 0 or self.measures.irSensor[0]> 2: 
+                self.update_position(2 if cardinal == "O"  else -2, cardinal)
+                self.driveMotors(0.0, 0.0)
+                return "choose"
+            else:
+                p = self.pcontrol(round(self.measures.x,1), self.next_cell[0], kp, kd) if cardinal == "O" else  self.pcontrol(self.next_cell[0], round(self.measures.x,1), kp, kd)
+                if self.measures.irSensor[1] >= 3:
+                    self.driveMotors(+0.09, 0.085)
+                    return "walk"
+                elif self.measures.irSensor[2] >= 3:
+                    self.driveMotors(+0.085, 0.09)
+                    return "walk"
+                else:
+                    self.driveMotors(0.1 - (p/2), 0.1 + (p/2))
+                    return "walk"
 
         else:
-            if self.measures.compass in range(-10, 11, 1):
-                if self.measures.compass < 0:
-                    self.driveMotors(vel-0.0025, vel)
-                    self.calc_pos(vel-0.0025, vel)
-                    #print("Predict: ", round(self.curr_x,2), round(self.curr_y,2))
-                    #print("Real: ", round((self.measures.x-self.inicial_x),2), round((self.measures.y-self.inicial_y),2))
-                else:
-                    self.driveMotors(vel, vel-0.0025)
-                    self.calc_pos(vel, vel-0.0025)
-                    #print("Predict: ", round(self.curr_x,2), round(self.curr_y,2))
-                    #print("Real: ", round((self.measures.x-self.inicial_x),2), round((self.measures.y-self.inicial_y),2))
-            elif self.measures.compass in range(80, 101, 1):
-                if self.measures.compass < 90:
-                    self.driveMotors(vel-0.0025, vel)
-                    self.calc_pos(vel-0.0025, vel)
-                    #print("Predict: ", round(self.curr_x,2), round(self.curr_y,2))
-                    #print("Real: ", round((self.measures.x-self.inicial_x),2), round((self.measures.y-self.inicial_y),2))
-                else:
-                    self.driveMotors(vel, vel-0.0025)
-                    self.calc_pos(vel, vel-0.0025)
-                    #print("Predict: ", round(self.curr_x,2), round(self.curr_y,2))
-                    #print("Real: ", round((self.measures.x-self.inicial_x),2), round((self.measures.y-self.inicial_y),2))
-            elif self.measures.compass in range(-100, -79, 1):
-                if self.measures.compass < -90:
-                    self.driveMotors(vel-0.0025, vel)
-                    self.calc_pos(vel-0.0025, vel)
-                    #print("Predict: ", round(self.curr_x,2), round(self.curr_y,2))
-                    #print("Real: ", round((self.measures.x-self.inicial_x),2), round((self.measures.y-self.inicial_y),2))
-                else:
-                    self.driveMotors(vel, vel-0.0025)
-                    self.calc_pos(vel, vel-0.0025)
-                    #print("Predict: ", round(self.curr_x,2), round(self.curr_y,2))
-                    #print("Real: ", round((self.measures.x-self.inicial_x),2), round((self.measures.y-self.inicial_y),2))
-            elif (self.measures.compass in range(170, 181, 1) or self.measures.compass in range(-180, -169, 1)):
-                if self.measures.compass < 0 and self.measures.compass > -180:
-                    self.driveMotors(vel, vel-0.0025)
-                    self.calc_pos(vel, vel-0.0025)
-                    #print("Predict: ", round(self.curr_x,2), round(self.curr_y,2))
-                    #print("Real: ", round((self.measures.x-self.inicial_x),2), round((self.measures.y-self.inicial_y),2))
-                elif self.measures.compass > 0 and self.measures.compass < 180:
-                    self.driveMotors(vel-0.0025, vel)
-                    self.calc_pos(vel-0.0025, vel)
-                    #print("Predict: ", round(self.curr_x,2), round(self.curr_y,2))
-                    #print("Real: ", round((self.measures.x-self.inicial_x),2), round((self.measures.y-self.inicial_y),2))
-            else:
-                self.driveMotors(vel, vel)
-                self.calc_pos(vel, vel)
-                #print("Predict: ", round(self.curr_x,2), round(self.curr_y,2))
-                #print("Real: ", round((self.measures.x-self.inicial_x),2), round((self.measures.y-self.inicial_y),2))
-
-    def calc_pos(self, lpot, rpot):
-        self.curr_lpout = (lpot + self.prev_lpout)/2
-        self.prev_lpout = self.curr_lpout
-
-        self.curr_rpout = (rpot + self.prev_rpout)/2
-        self.prev_rpout = self.curr_rpout
-
-        lin = (self.curr_lpout + self.curr_rpout)/2
-
-        rot = rpot - lpot
-        self.prev_theta = math.radians(self.curr_theta) + rot ## compasso / bussula
-
-        self.curr_x = self.prev_x + lin * math.cos(self.prev_theta)
-        self.curr_y = self.prev_y + lin * math.sin(self.prev_theta)
-
-        self.prev_x = self.curr_x
-        self.prev_y = self.curr_y
-
+            print("return to choose")
+            self.driveMotors(0.0, 0.0)
+            return "choose"
 
     def rot_left(self, delta_ang, cardinal):
         state = ""
         self.errorPrev = 0
         if cardinal == "N":
-            if self.measures.compass >= 88 and self.measures.compass <= 92:
+            if self.measures.compass >= 89 and self.measures.compass <= 91:
                 self.driveMotors(0.0, 0.0)
-                self.curr_theta = 90
                 state = "walk"
-            elif (75 <= self.measures.compass < 88):
-                self.driveMotors(-0.01, 0.01)
-                state = "rot_left"
-            elif (60 < self.measures.compass < 75):
+                print(self.measures.compass)
+            elif (60 < self.measures.compass < 89):
                 self.driveMotors(-0.02, 0.02)
                 state = "rot_left"
             else:
                 self.driveMotors(-0.09, 0.09)
                 state = "rot_left"
         if cardinal == "S":
-            if self.measures.compass >= -92 and self.measures.compass <= -88:
+            if self.measures.compass >= -91 and self.measures.compass <= -89:
                 self.driveMotors(0.0, 0.0)
-                self.curr_theta = -90
                 state = "walk"
-            elif (-100 <= self.measures.compass < -92):
-                self.driveMotors(-0.01, 0.01)
-                state = "rot_left"
-            elif (-115 < self.measures.compass < -100):
+                print(self.measures.compass)
+            elif (-115 < self.measures.compass < -91):
                 self.driveMotors(-0.02, 0.02)
                 state = "rot_left"
             else:
                 self.driveMotors(-0.09, 0.09)
                 state = "rot_left"
         if cardinal == "O":
-            if self.measures.compass >= 178 or self.measures.compass <= -178:
+            if self.measures.compass >= 179 or self.measures.compass <= -179:
                 self.driveMotors(0.0, 0.0)
-                self.curr_theta = -180
                 state = "walk"
-            elif (165 <= self.measures.compass < 178):
-                self.driveMotors(-0.01, 0.01)
-                state = "rot_left"
-            elif (155 < self.measures.compass < 165):
+                print(self.measures.compass)
+            elif (155 < self.measures.compass < 179):
                 self.driveMotors(-0.02, 0.02)
                 state = "rot_left"
             else:
                 self.driveMotors(-0.09, 0.09)
                 state = "rot_left"
         if cardinal == "E":
-            if self.measures.compass >= -2 and self.measures.compass <= 2:
+            if self.measures.compass >= -1 and self.measures.compass <= 1:
                 self.driveMotors(0.0, 0.0)
-                self.curr_theta = 0
                 state = "walk"
-            elif (-10 <= self.measures.compass < -2):
-                self.driveMotors(-0.01, 0.01)
-                state = "rot_left"
-            elif (-25 < self.measures.compass < -10):
+                print(self.measures.compass)
+            elif (-25 < self.measures.compass < -1):
                 self.driveMotors(-0.02, 0.02)
                 state = "rot_left"
             else:
                 self.driveMotors(-0.09, 0.09)
                 state = "rot_left"
-        #print("STATE: ", state)
+
         return state
 
     def rot_right(self, delta_ang, cardinal): # def
@@ -648,56 +512,44 @@ class MyRob(CRobLinkAngs):
         self.errorPrev = 0
         if delta_ang == 180:
             if cardinal == "N":
-                if self.measures.compass >= 178 or self.measures.compass <= -178:
+                if self.measures.compass >= 179 or self.measures.compass <= -179:
                     self.driveMotors(0.0, 0.0)
-                    self.curr_theta = -180
                     state = "walk"
-                elif (-178 < self.measures.compass <= -168):
-                    self.driveMotors(0.01, -0.01)
-                    state = "rot_right"
-                elif (-168 < self.measures.compass < -155):
+                    print(self.measures.compass)
+                elif (-179 < self.measures.compass < -155):
                     self.driveMotors(0.02, -0.02)
                     state = "rot_right"
                 else:
                     self.driveMotors(0.09, -0.09)
                     state = "rot_right"
             if cardinal == "S":
-                if self.measures.compass >= -2 and self.measures.compass <= 2:
+                if self.measures.compass >= -1 and self.measures.compass <= 1:
                     self.driveMotors(0.0, 0.0)
-                    self.curr_theta = 0
                     state = "walk"
-                elif (2 < self.measures.compass <= 10):
-                    self.driveMotors(0.01, -0.01)
-                    state = "rot_right"
-                elif (10 < self.measures.compass < 25):
+                    print(self.measures.compass)
+                elif (1 < self.measures.compass < 25):
                     self.driveMotors(0.02, -0.02)
                     state = "rot_right"
                 else:
                     self.driveMotors(0.09, -0.09)
                     state = "rot_right"
             if cardinal == "O":
-                if self.measures.compass >= -92 and self.measures.compass <= -88 :
+                if self.measures.compass >= -91 and self.measures.compass <= -89 :
                     self.driveMotors(0.0, 0.0)
-                    self.curr_theta = -90
                     state = "walk"
-                elif (-88 < self.measures.compass <= -75):
-                    self.driveMotors(0.01, -0.01)
-                    state = "rot_right"
-                elif (-75 < self.measures.compass < -65):
+                    print(self.measures.compass)
+                elif (-89 < self.measures.compass < -65):
                     self.driveMotors(0.02, -0.02)
                     state = "rot_right"
                 else:
                     self.driveMotors(0.09, -0.09)
                     state = "rot_right"
             if cardinal == "E":
-                if self.measures.compass >= 88 and self.measures.compass <= 92:
+                if self.measures.compass >= 89 and self.measures.compass <= 91:
                     self.driveMotors(0.0, 0.0)
-                    self.curr_theta = 90
                     state = "walk"
-                elif (92 < self.measures.compass <= 100):
-                    self.driveMotors(0.01, -0.01)
-                    state = "rot_right"
-                elif (100 < self.measures.compass < 115):
+                    print(self.measures.compass)
+                elif (91 < self.measures.compass < 115):
                     self.driveMotors(0.02, -0.02)
                     state = "rot_right"
                 else:
@@ -705,56 +557,44 @@ class MyRob(CRobLinkAngs):
                     state = "rot_right"
         else:
             if cardinal == "N":
-                if self.measures.compass >= -92 and self.measures.compass <= -88:
+                if self.measures.compass >= -91 and self.measures.compass <= -89:
                     self.driveMotors(0.0, 0.0)
-                    self.curr_theta = -90
                     state = "walk"
-                elif (-88 < self.measures.compass <= -75):
-                    self.driveMotors(0.01, -0.01)
-                    state = "rot_right"
-                elif (-75 < self.measures.compass < -65):
+                    print(self.measures.compass)
+                elif (-89 < self.measures.compass < -65):
                     self.driveMotors(0.02, -0.02)
                     state = "rot_right"
                 else:
                     self.driveMotors(0.09, -0.09)
                     state = "rot_right"
             if cardinal == "S":
-                if self.measures.compass >= 88 and self.measures.compass <= 92:
+                if self.measures.compass >= 89 and self.measures.compass <= 91:
                     self.driveMotors(0.0, 0.0)
-                    self.curr_theta = 90
                     state = "walk"
-                elif (92 < self.measures.compass <= 100):
-                    self.driveMotors(0.01, -0.01)
-                    state = "rot_right"
-                elif (100 < self.measures.compass < 115):
+                    print(self.measures.compass)
+                elif (91 < self.measures.compass < 115):
                     self.driveMotors(0.02, -0.02)
                     state = "rot_right"
                 else:
                     self.driveMotors(0.09, -0.09)
                     state = "rot_right"
             if cardinal == "O":
-                if self.measures.compass >= -2 and self.measures.compass <= 2:
+                if self.measures.compass >= -1 and self.measures.compass <= 1:
                     self.driveMotors(0.0, 0.0)
-                    self.curr_theta = 0
                     state = "walk"
-                elif (2 < self.measures.compass <= 10):
-                    self.driveMotors(0.01, -0.01)
-                    state = "rot_right"
-                elif (10 < self.measures.compass < 25):
+                    print(self.measures.compass)
+                elif (1 < self.measures.compass < 25):
                     self.driveMotors(0.02, -0.02)
                     state = "rot_right"
                 else:
                     self.driveMotors(0.09, -0.09)
                     state = "rot_right"
             if cardinal == "E":
-                if self.measures.compass >= 178 or self.measures.compass <= -178:
+                if self.measures.compass >= 179 or self.measures.compass <= -179:
                     self.driveMotors(0.0, 0.0)
-                    self.curr_theta = -180
                     state = "walk"
-                elif (-178 < self.measures.compass <= -168):
-                    self.driveMotors(0.01, -0.01)
-                    state = "rot_right"
-                elif (-168 < self.measures.compass < -155):
+                    print(self.measures.compass)
+                elif (-179 < self.measures.compass < -155):
                     self.driveMotors(0.02, -0.02)
                     state = "rot_right"
                 else:
@@ -791,7 +631,7 @@ class Map():
            i=i+1
 
 
-rob_name = "pClient1"   
+rob_name = "pClient1"
 host = "localhost"
 pos = 1
 mapc = None
@@ -816,3 +656,4 @@ if __name__ == '__main__':
         rob.printMap()
 
     rob.run()
+

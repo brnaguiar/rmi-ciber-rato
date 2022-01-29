@@ -81,8 +81,6 @@ class MyRob(CRobLinkAngs):
         self.beacons = 0
         self.beacon = 1
         self.beacon_path = []
-        self.inicial_x = 0
-        self.inicial_y = 0
         self.beaconCanWrite = True
         self.beaconCanWriteSimTime = True   
 
@@ -108,8 +106,6 @@ class MyRob(CRobLinkAngs):
         cardinal = 0
 
         self.readSensors()
-        self.inicial_x = self.measures.x
-        self.inicial_y = self.measures.y
         self.init_position()
 
         if os.path.exists(self.pathfile):
@@ -163,6 +159,7 @@ class MyRob(CRobLinkAngs):
                         #print("escrevendo no ficheiro...")
                         mapfile.write(''.join([str(a) for a in row]) + '\n')
                 self.write_planning()
+                self.finish()
                 sys.exit()
 
             if self.measures.time > int(self.simTime)-50 and self.beaconCanWriteSimTime: #$self.    
