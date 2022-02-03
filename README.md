@@ -10,7 +10,7 @@
 
 3. Planning: The agent needs to compute a closed path with minimal cost that allows to visit all target spots, starting and ending in the starting spot.
 
-These objectives were archieved using S.L.A.M. techniques. 
+These objectives were achieved using S.L.A.M. techniques. 
 
 ![Alt Text](https://media0.giphy.com/media/x4bIza5QxRQopRjURd/giphy.gif)
 
